@@ -13,52 +13,60 @@ DEVELOPER_KEY = "AIzaSyC_yFHSNjox4-pcCKubIZEb1wmy84Af980"
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
-#pobiera informacje o kanale
-#miedzy innymi identyfikator playlisty do wszystkich filmow - potem bedzie mozna pobierac komentarze z tych filmikow
+
 def get_channel_info(options):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                     developerKey=DEVELOPER_KEY)
 
     results = youtube.channels().list(
         part="snippet,statistics,status,contentDetails",
-        #forUsername=options.forUsername,
         id=options.id,
         maxResults=options.max_results
     ).execute()
 
     for item in results["items"]:
         title = item["snippet"]["title"]
-        description = item["snippet"]["description"],
-        status = item["status"],
-        view_count = item["statistics"]["viewCount"]
-        subscriber_count = item["statistics"]["subscriberCount"]
-        video_count = item["statistics"]["videoCount"]
         uploaded_videos = item["contentDetails"]["relatedPlaylists"]["uploads"]
-        print "Channel: %s Description: %s Status %s" % (title, description, status)
-        print "ViewCount %s" % (view_count)
-        print "Subscribers: %s" % (subscriber_count)
-        print "Video count: %s" % (video_count)
-        print "Uploaded videos: %s" % (uploaded_videos)
+        print "Uploaded videos - id of the playlist: %s" % (uploaded_videos)
         get_playlist_items(uploaded_videos)
 
 
-def get_playlist_items(uploaded_videos):
-
+def get_playlist_items(playlist_id):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                     developerKey=DEVELOPER_KEY)
 
     results = youtube.playlistItems().list(
         part="snippet,status,contentDetails",
-        playlistId=uploaded_videos
+        playlistId=playlist_id
     ).execute()
 
     for item in results["items"]:
-        id = item["id"]
-        videoId = item["contentDetails"]["videoId"]
-        print "Channel item id %s" % (id)
-        print "Video Id %s" % (videoId)
+        video_id = item["contentDetails"]["videoId"]
+        print "Video Id %s" % video_id
+        options = {'video_id': video_id, 'max_results': 25}
 
+        get_commentators_channels_id(options)
 
+def get_commentators_channels_id(options):
+    youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
+
+    results = youtube.commentThreads().list(
+        part="snippet",
+        videoId=options['video_id'],
+        maxResults=options['max_results'],
+        textFormat="plainText"
+    ).execute()
+
+    commentators_ids = []
+
+    for item in results["items"]:
+        comment = item["snippet"]["topLevelComment"]
+        text = comment["snippet"]["textDisplay"]
+        authorChannelId = comment["snippet"]["authorChannelId"]["value"]
+        commentators_ids.append(authorChannelId)
+        print "Comment: %s commentator: %s" % (comment, authorChannelId)
+
+    return commentators_ids
 
 if __name__ == "__main__":
     argparser.add_argument("--max-results", help="Max results", default=25)
