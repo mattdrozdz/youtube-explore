@@ -39,12 +39,31 @@ def get_channel_info(options):
         print "Subscribers: %s" % (subscriber_count)
         print "Video count: %s" % (video_count)
         print "Uploaded videos: %s" % (uploaded_videos)
+        get_playlist_items(uploaded_videos)
+
+
+def get_playlist_items(uploaded_videos):
+
+    youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
+                    developerKey=DEVELOPER_KEY)
+
+    results = youtube.playlistItems().list(
+        part="snippet,status,contentDetails",
+        playlistId=uploaded_videos
+    ).execute()
+
+    for item in results["items"]:
+        id = item["id"]
+        videoId = item["contentDetails"]["videoId"]
+        print "Channel item id %s" % (id)
+        print "Video Id %s" % (videoId)
+
 
 
 if __name__ == "__main__":
     argparser.add_argument("--max-results", help="Max results", default=25)
     argparser.add_argument("--forUsername", help="For Username", default="FightMediocrity")
-    argparser.add_argument("--id", help="Id", default="UCPAAsVfLJt9cz4u8JL50E0g")
+    argparser.add_argument("--id", help="Id", default="UCbz5R9gNMCNkA92jz4JYi6Q")
     args = argparser.parse_args()
 
     try:
