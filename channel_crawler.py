@@ -19,107 +19,148 @@ def get_channel_id_for_name(options):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                     developerKey=DEVELOPER_KEY)
 
-    results = youtube.channels().list(
-        part="id",
-        forUsername=options.for_username,
-    ).execute()
+    next_page_token = ''
 
-    for item in results["items"]:
-        channel_id = item["id"]
-        print channel_id
+    while next_page_token is not None:
+        results = youtube.channels().list(
+            part="id",
+            forUsername=options.for_username,
+            pageToken=next_page_token
+        ).execute()
+
+        for item in results["items"]:
+            channel_id = item["id"]
+            print channel_id
+
+        if results['nextPageToken'] is not None:
+            next_page_token = results['nextPageToken']
+
 
 def get_video_info_for_id(video_id):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                     developerKey=DEVELOPER_KEY)
 
-    results = youtube.videos().list(
-        id=video_id,
-        part='snippet,statistics'
-    ).execute()
+    next_page_token = ''
 
-    for item in results['items']:
-        video_id = item['id']
-        channel_id = item['snippet']['channelId']
-        title = item['snippet']['title']
-        published_at = item['snippet']['publishedAt']
-        description = item['snippet']['description']
-        #TODO: include video stats in db schema
-        stats = item['statistics']
+    while next_page_token is not None:
+        results = youtube.videos().list(
+            id=video_id,
+            part='snippet,statistics',
+            pageToken=next_page_token
+        ).execute()
 
-        # TODO: save this to db (video table + video_stats table)
-        print "VIDEO INFO: videoId: %s; channelId: %s; title: %s; publishedAt: %s; description: %s; stats: %s" % video_id, channel_id, title, published_at, description, stats
+        for item in results['items']:
+            video_id = item['id']
+            channel_id = item['snippet']['channelId']
+            title = item['snippet']['title']
+            published_at = item['snippet']['publishedAt']
+            description = item['snippet']['description']
+            # TODO: include video stats in db schema
+            stats = item['statistics']
+
+            # TODO: save this to db (video table + video_stats table)
+            print "VIDEO INFO: videoId: %s; channelId: %s; title: %s; publishedAt: %s; description: %s; stats: %s" % (
+                video_id, channel_id, title, published_at, description, stats)
+
+        if results['nextPageToken'] is not None:
+            next_page_token = results['nextPageToken']
+
 
 def get_channel_info(options):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                     developerKey=DEVELOPER_KEY)
 
-    results = youtube.channels().list(
-        part="snippet,statistics,status,contentDetails",
-        id=options.id,
-        # forUsername=options.for_username,
-        maxResults=options.max_results
-    ).execute()
+    next_page_token = ''
 
-    for item in results["items"]:
-        title = item["snippet"]["title"]
-        description = item["snippet"]["description"]
-        published_at = item["snippet"]["publishedAt"]
-        country = item["snippet"].get("country")
-        stats = item["statistics"]
+    while next_page_token is not None:
+        results = youtube.channels().list(
+            part="snippet,statistics,status,contentDetails",
+            id=options.id,
+            pageToken=next_page_token
+        ).execute()
 
-        # TODO: save this to db
-        print "CHANNEL INFO: title: %s; desc: %s; publAt: %s; country %s; stats: %s" % (title, description, published_at, country, stats)
+        for item in results["items"]:
+            title = item["snippet"]["title"]
+            description = item["snippet"]["description"]
+            published_at = item["snippet"]["publishedAt"]
+            country = item["snippet"].get("country")
+            stats = item["statistics"]
 
-        uploaded_videos = item["contentDetails"]["relatedPlaylists"]["uploads"]
-        print "Uploaded videos - id of the playlist: %s" % (uploaded_videos)
-        get_playlist_items(uploaded_videos)
+            # TODO: save this to db
+            print "CHANNEL INFO: title: %s; desc: %s; publAt: %s; country %s; stats: %s" % (
+                title, description, published_at, country, stats)
+
+            uploaded_videos = item["contentDetails"]["relatedPlaylists"]["uploads"]
+            print "Uploaded videos - id of the playlist: %s" % uploaded_videos
+            get_playlist_items(uploaded_videos)
+
+        if results['nextPageToken'] is not None:
+            next_page_token = results['nextPageToken']
 
 
 def get_playlist_items(playlist_id):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                     developerKey=DEVELOPER_KEY)
 
-    results = youtube.playlistItems().list(
-        part="contentDetails",
-        playlistId=playlist_id
-    ).execute()
+    next_page_token = ''
 
-    for item in results["items"]:
-        video_id = item["contentDetails"]["videoId"]
-        print "Video Id: %s" % video_id
-        options = {'video_id': video_id, 'max_results': 25}
+    while next_page_token is not None:
+        results = youtube.playlistItems().list(
+            part="contentDetails",
+            playlistId=playlist_id,
+            pageToken=next_page_token
+        ).execute()
 
-        get_commentators_channels_id(options)
+        for item in results["items"]:
+            video_id = item["contentDetails"]["videoId"]
+            print "Video Id: %s" % video_id
+            options = {'video_id': video_id}
+
+            get_commentators_channels_id(options)
+
+        if results['nextPageToken'] is not None:
+            next_page_token = results['nextPageToken']
+
 
 def get_commentators_channels_id(options):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, developerKey=DEVELOPER_KEY)
 
-    results = youtube.commentThreads().list(
-        part="snippet",
-        videoId=options['video_id'],
-        maxResults=options['max_results'],
-        textFormat="plainText"
-    ).execute()
-
+    next_page_token = ''
     commentators_ids = []
 
-    for item in results["items"]:
-        comment_id = item['id']
-        channel_id = item['snippet']['channelId']
-        video_id = item['snippet'].get('videoId')   # if the comments refer to the channel itself, the snippet.videoId property will not have a value
-        total_reply_count = item['snippet']['totalReplyCount']  # The total number of replies that have been submitted in response to the top-level comment.
-        comment = item["snippet"]["topLevelComment"]
-        text = comment["snippet"]["textDisplay"]
-        authorChannelId = comment["snippet"]["authorChannelId"]["value"]
-        # TODO: maybe get "parentId" too
-        # TODO: include likeCount, publishedAt here and in db schema
+    while next_page_token is not None:
+        results = youtube.commentThreads().list(
+            part="snippet",
+            videoId=options['video_id'],
+            textFormat="plainText",
+            pageToken=next_page_token,
+        ).execute()
 
-        #TODO: save this to db (comment table)
-        print "COMMENT INFO: commentId: %s; channelId: %s; videoId: %s; authorChannelId: %s; totalReplyCount: %s; text: %s" % comment_id, channel_id, video_id, authorChannelId, total_reply_count, text
-        commentators_ids.append(authorChannelId)
-        print "Comment: %s #Commentator: %s" % (text, authorChannelId)
+        for item in results["items"]:
+            comment_id = item['id']
+            channel_id = item['snippet']['channelId']
+            video_id = item['snippet'].get(
+                'videoId')  # if the comments refer to the channel itself, the snippet.videoId property will not have a value
+            total_reply_count = item['snippet'][
+                'totalReplyCount']  # The total number of replies that have been submitted in response to the top-level comment.
+            comment = item["snippet"]["topLevelComment"]
+            text = comment["snippet"]["textDisplay"]
+            authorChannelId = comment["snippet"]["authorChannelId"]["value"]
+            # TODO: maybe get "parentId" too
+            # TODO: include likeCount, publishedAt here and in db schema
+
+            # TODO: save this to db (comment table)
+            print "COMMENT INFO: commentId: %s; channelId: %s; " \
+                  "videoId: %s; authorChannelId: %s; totalReplyCount: %s; text: %s" \
+                  % (comment_id, channel_id, video_id, authorChannelId, total_reply_count, text)
+            commentators_ids.append(authorChannelId)
+            print "Comment: %s #Commentator: %s" % (text, authorChannelId)
+
+        if results['nextPageToken'] is not None:
+            next_page_token = results['nextPageToken']
 
     return commentators_ids
+
 
 if __name__ == "__main__":
     argparser.add_argument("--max-results", help="Max results", default=25)
