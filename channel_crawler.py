@@ -109,6 +109,7 @@ def get_video_info_for_id(video_id):
         data_video_stats = (video_id, stats['viewCount'], stats['likeCount'], stats['dislikeCount'], stats['favoriteCount'], stats['commentCount'])
         cursor.execute(add_video_stats, data_video_stats)
         cnx.commit()
+    return results
 
 
 def get_channel_info(options):
@@ -174,8 +175,16 @@ def get_playlist_items(playlist_id):
             print "VIDEO_ID: %s" % video_id
             options = {'video_id': video_id}
 
-            get_video_info_for_id(video_id)
-            get_commentators_channels_id(options)
+            videos_results = get_video_info_for_id(video_id)
+            commentCount = 0
+
+            if videos_results is not None and len(videos_results) > 0:
+                single_result = videos_results.items()[0]
+                video_info = single_result[1][0]
+                commentCount = video_info["statistics"]["commentCount"]
+
+            if commentCount > 0:
+                get_commentators_channels_id(options)
 
         next_page_token = results.get('nextPageToken')
 
