@@ -6,7 +6,7 @@ from oauth2client.tools import argparser
 import mysql.connector
 from mysql.connector import errorcode
 
-#TODO: support for channels with disabled comments (see below)
+# TODO: support for channels with disabled comments (see below)
 # An HTTP error 403 occurred:
 # {
 #  "error": {
@@ -33,10 +33,10 @@ YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
 
 config = {
-  'user': 'root',
-  'password': 'root',
-  'host': '127.0.0.1',
-  'database': 'youtube'
+    'user': 'root',
+    'password': 'root',
+    'host': '127.0.0.1',
+    'database': 'youtube'
 }
 
 try:
@@ -48,7 +48,6 @@ except mysql.connector.Error as err:
         print("Database does not exist")
     else:
         print(err)
-
 
 cursor = cnx.cursor()
 
@@ -104,9 +103,11 @@ def get_video_info_for_id(video_id):
         cursor.execute(add_video, data_video)
         # save stats
         add_video_stats = ("INSERT INTO video_statistics "
-                     "(video_id, view_count, like_count, dislike_count, favourite_count, comment_count) "
-                     "VALUES (%s, %s, %s, %s, %s, %s)")
-        data_video_stats = (video_id, stats['viewCount'], stats['likeCount'], stats['dislikeCount'], stats['favoriteCount'], stats['commentCount'])
+                           "(video_id, view_count, like_count, dislike_count, favourite_count, comment_count) "
+                           "VALUES (%s, %s, %s, %s, %s, %s)")
+        data_video_stats = (
+        video_id, stats['viewCount'], stats['likeCount'], stats['dislikeCount'], stats['favoriteCount'],
+        stats['commentCount'])
         cursor.execute(add_video_stats, data_video_stats)
         cnx.commit()
     return results
@@ -136,19 +137,21 @@ def get_channel_info(options):
             print "CHANNEL INFO: title: %s; desc: %s; publAt: %s; country %s; \nstats: %s" % (
                 title, description, published_at, country, stats)
 
-            # save to DB
-            add_channel = ("INSERT INTO channel "
-               "(channel_id, title, description, published_at, country) "
-               "VALUES (%s, %s, %s, %s, %s)")
-            data_channel = (options.id, title, description, published_at, country)
-            cursor.execute(add_channel, data_channel)
-            # save stats
-            add_channel_stats = ("INSERT INTO channel_statistics "
-               "(channel_id, view_count, comment_count, subscriber_count, hidden_subscriber_count, video_count) "
-               "VALUES (%s, %s, %s, %s, %s, %s)")
-            data_channel_stats = (options.id, stats['viewCount'], stats['commentCount'], stats['subscriberCount'], stats['hiddenSubscriberCount'], stats['videoCount'])
-            cursor.execute(add_channel_stats, data_channel_stats)
-            cnx.commit()
+            if not channel_already_in_db(options.id):
+                # save to DB
+                add_channel = ("INSERT INTO channel "
+                               "(channel_id, title, description, published_at, country) "
+                               "VALUES (%s, %s, %s, %s, %s)")
+                data_channel = (options.id, title, description, published_at, country)
+                cursor.execute(add_channel, data_channel)
+                # save stats
+                add_channel_stats = ("INSERT INTO channel_statistics "
+                                     "(channel_id, view_count, comment_count, subscriber_count, hidden_subscriber_count, video_count) "
+                                     "VALUES (%s, %s, %s, %s, %s, %s)")
+                data_channel_stats = (options.id, stats['viewCount'], stats['commentCount'], stats['subscriberCount'],
+                                      stats['hiddenSubscriberCount'], stats['videoCount'])
+                cursor.execute(add_channel_stats, data_channel_stats)
+                cnx.commit()
 
             uploaded_videos = item["contentDetails"]["relatedPlaylists"]["uploads"]
             print "Uploaded videos - id of the playlist: %s" % uploaded_videos
@@ -175,16 +178,11 @@ def get_playlist_items(playlist_id):
             print "VIDEO_ID: %s" % video_id
             options = {'video_id': video_id}
 
-            videos_results = get_video_info_for_id(video_id)
-            commentCount = 0
-
-            if videos_results is not None and len(videos_results) > 0:
-                single_result = videos_results.items()[0]
-                video_info = single_result[1][0]
-                commentCount = video_info["statistics"]["commentCount"]
-
-            if commentCount > 0:
+            get_video_info_for_id(video_id)
+            try:
                 get_commentators_channels_id(options)
+            except HttpError, e:
+                print "Video %s omitted due to an HTTP error" % (video_id)
 
         next_page_token = results.get('nextPageToken')
 
@@ -225,17 +223,21 @@ def get_commentators_channels_id(options):
             print "COMMENT INFO: commentId: %s; channelId: %s; " \
                   "videoId: %s; authorChannelId: %s; totalReplyCount: %s; likeCount: %s; publishedAt: %s; \ntext: %s" \
                   % (
-                  comment_id, channel_id, video_id, authorChannelIdValue, total_reply_count, like_count, published_at,
-                  text)
+                      comment_id, channel_id, video_id, authorChannelIdValue, total_reply_count, like_count,
+                      published_at,
+                      text)
 
             # save to DB
-            #TODO: firstly fetch & save info about commentator's channel
-            #TODO: secondly fix issue with author_channel_id db constraint
-            # fetch_channel_info(authorChannelId)
+            # TODO: firstly fetch & save info about commentator's channel
+            # TODO: secondly fix issue with author_channel_id db constraint
+            if authorChannelIdValue is not None and not channel_already_in_db(authorChannelIdValue):
+                fetch_channel_info(authorChannelIdValue)
+
             add_comment = ("INSERT INTO comment "
                            "(comment_id, author_channel_id, channel_id, video_id, text, total_reply_count, like_count, published_at) "
                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ")
-            data_comment = (comment_id, None, channel_id, options['video_id'], text, total_reply_count, like_count, published_at)
+            data_comment = (
+            comment_id, authorChannelIdValue, channel_id, options['video_id'], text, total_reply_count, like_count, published_at)
             cursor.execute(add_comment, data_comment)
             cnx.commit()
 
@@ -245,49 +247,66 @@ def get_commentators_channels_id(options):
 
     return commentators_ids
 
+
 # this method do not call get_playlist_items(uploaded_videos), only fetch info and save to db
 def fetch_channel_info(channel_id):
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                     developerKey=DEVELOPER_KEY)
 
-    next_page_token = ''
+    results = youtube.channels().list(
+        part="snippet,statistics,status,contentDetails",
+        id=channel_id
+    ).execute()
 
-    while next_page_token is not None:
-        results = youtube.channels().list(
-            part="snippet,statistics,status,contentDetails",
-            id=channel_id,
-            pageToken=next_page_token
-        ).execute()
+    for item in results["items"]:
+        title = item["snippet"]["title"]
+        description = item["snippet"]["description"]
+        published_at = item["snippet"]["publishedAt"]
+        country = item["snippet"].get("country")
+        stats = item["statistics"]
 
-        for item in results["items"]:
-            title = item["snippet"]["title"]
-            description = item["snippet"]["description"]
-            published_at = item["snippet"]["publishedAt"]
-            country = item["snippet"].get("country")
-            stats = item["statistics"]
+        # TODO: save this to db (channel table + channel_statistics)
+        print "CHANNEL INFO: title: %s; desc: %s; publAt: %s; country %s; \nstats: %s" % (
+            title, description, published_at, country, stats)
 
-            # TODO: save this to db (channel table + channel_statistics)
-            print "CHANNEL INFO: title: %s; desc: %s; publAt: %s; country %s; \nstats: %s" % (
-                title, description, published_at, country, stats)
+        # save to DB
+        add_channel = ("INSERT INTO channel "
+                       "(channel_id, title, description, published_at, country) "
+                       "VALUES (%s, %s, %s, %s, %s)")
+        data_channel = (channel_id, title, description, published_at, country)
+        cursor.execute(add_channel, data_channel)
+        # save stats
+        add_channel_stats = ("INSERT INTO channel_statistics "
+                             "(channel_id, view_count, comment_count, subscriber_count, hidden_subscriber_count, video_count) "
+                             "VALUES (%s, %s, %s, %s, %s, %s)")
+        data_channel_stats = (
+        channel_id, stats['viewCount'], stats['commentCount'], stats['subscriberCount'], stats['hiddenSubscriberCount'],
+        stats['videoCount'])
+        cursor.execute(add_channel_stats, data_channel_stats)
+        cnx.commit()
 
-            # save to DB
-            add_channel = ("INSERT INTO channel "
-               "(channel_id, title, description, published_at, country) "
-               "VALUES (%s, %s, %s, %s, %s)")
-            data_channel = (options.id, title, description, published_at, country)
-            cursor.execute(add_channel, data_channel)
-            # save stats
-            add_channel_stats = ("INSERT INTO channel_statistics "
-               "(channel_id, view_count, comment_count, subscriber_count, hidden_subscriber_count, video_count) "
-               "VALUES (%s, %s, %s, %s, %s, %s)")
-            data_channel_stats = (options.id, stats['viewCount'], stats['commentCount'], stats['subscriberCount'], stats['hiddenSubscriberCount'], stats['videoCount'])
-            cursor.execute(add_channel_stats, data_channel_stats)
-            cnx.commit()
+        uploaded_videos = item["contentDetails"]["relatedPlaylists"]["uploads"]
+        print "Uploaded videos - id of the playlist: %s" % uploaded_videos
 
-            uploaded_videos = item["contentDetails"]["relatedPlaylists"]["uploads"]
-            print "Uploaded videos - id of the playlist: %s" % uploaded_videos
+def channel_already_in_db(channel_id):
+    cursor = cnx.cursor()
+    query = ("SELECT 1 FROM youtube.channel WHERE channel.channel_id = '" + channel_id + "'")
+    cursor.execute(query, params=None)
 
-        next_page_token = results.get('nextPageToken')
+    res = cursor._fetch_row()
+    cursor.close()
+
+    return res != None
+
+def association_already_in_db(commented_id, commentator_id):
+    cursor = cnx.cursor()
+    query = ("SELECT 1 FROM youtube.comment WHERE comment.channel_id = '" + commented_id + "' and comment.author_channel_id = '" + commentator_id + "'")
+    cursor.execute(query, params=None)
+
+    res = cursor._fetch_row()
+    cursor.close()
+
+    return res != None
 
 
 if __name__ == "__main__":
