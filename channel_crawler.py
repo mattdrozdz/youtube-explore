@@ -1,28 +1,16 @@
 # !/usr/bin/python
 
+from __future__ import print_function
 from apiclient.discovery import build
 from apiclient.errors import HttpError
 from oauth2client.tools import argparser
 import mysql.connector
 from mysql.connector import errorcode
+from time import sleep
+from httplib import BadStatusLine
+from time import strftime
+import codecs
 
-# TODO: support for channels with disabled comments (see below)
-# An HTTP error 403 occurred:
-# {
-#  "error": {
-#   "errors": [
-#    {
-#     "domain": "youtube.commentThread",
-#     "reason": "commentsDisabled",
-#     "message": "The video identified by the \u003ccode\u003e\u003ca href=\"/youtube/v3/docs/commentThreads/list#videoId\"\u003evideoId\u003c/a\u003e\u003c/code\u003e parameter has disabled comments.",
-#     "locationType": "parameter",
-#     "location": "videoId"
-#    }
-#   ],
-#   "code": 403,
-#   "message": "The video identified by the \u003ccode\u003e\u003ca href=\"/youtube/v3/docs/commentThreads/list#videoId\"\u003evideoId\u003c/a\u003e\u003c/code\u003e parameter has disabled comments."
-#  }
-# }
 
 # Set DEVELOPER_KEY to the API key value from the APIs & auth > Registered apps
 # tab of
@@ -31,6 +19,10 @@ from mysql.connector import errorcode
 DEVELOPER_KEY = "AIzaSyC_yFHSNjox4-pcCKubIZEb1wmy84Af980"
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
+
+MAX_RESULTS = 50
+err_log = None
+out_log = None
 
 config = {
     'user': 'root',
@@ -67,7 +59,7 @@ def get_channel_id_for_name(options):
 
         for item in results["items"]:
             channel_id = item["id"]
-            print channel_id
+            print(channel_id)
 
         if results['nextPageToken'] is not None:
             next_page_token = results['nextPageToken']
@@ -88,12 +80,10 @@ def get_video_info_for_id(video_id):
         title = item['snippet']['title']
         published_at = item['snippet']['publishedAt']
         description = item['snippet']['description']
-        # TODO: include video stats in db schema
         stats = item['statistics']
 
-        # TODO: save this to db (video table + video_stats table)
-        print "VIDEO INFO: videoId: %s; channelId: %s; title: %s; publishedAt: %s; \ndescription: %s; \nstats: %s" % (
-            video_id, channel_id, title, published_at, description, stats)
+        log ("VIDEO INFO: videoId: %s; channelId: %s; title: %s; publishedAt: %s; \ndescription: %s; \nstats: %s" % (
+            video_id, channel_id, title, published_at, description, stats))
 
         # save to DB
         add_video = ("INSERT INTO video "
@@ -114,6 +104,11 @@ def get_video_info_for_id(video_id):
 
 
 def get_channel_info(options):
+    if options.level <= 0:
+        return
+
+    print ("Starting from channel with id: %s", options.id)
+
     youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
                     developerKey=DEVELOPER_KEY)
 
@@ -133,9 +128,8 @@ def get_channel_info(options):
             country = item["snippet"].get("country")
             stats = item["statistics"]
 
-            # TODO: save this to db (channel table + channel_statistics)
-            print "CHANNEL INFO: title: %s; desc: %s; publAt: %s; country %s; \nstats: %s" % (
-                title, description, published_at, country, stats)
+            log ("CHANNEL INFO: title: %s; desc: %s; publAt: %s; country %s; \nstats: %s" % (
+                title, description, published_at, country, stats))
 
             if not channel_already_in_db(options.id):
                 # save to DB
@@ -154,8 +148,12 @@ def get_channel_info(options):
                 cnx.commit()
 
             uploaded_videos = item["contentDetails"]["relatedPlaylists"]["uploads"]
-            print "Uploaded videos - id of the playlist: %s" % uploaded_videos
-            get_playlist_items(uploaded_videos)
+            log ("Uploaded videos - id of the playlist: %s" % uploaded_videos)
+            try:
+                get_playlist_items(uploaded_videos)
+            except BadStatusLine, e:
+                error ("BadStatusLine ocurred while calling get_playlist_items(%s)" % (uploaded_videos))
+
 
         next_page_token = results.get('nextPageToken')
 
@@ -170,19 +168,21 @@ def get_playlist_items(playlist_id):
         results = youtube.playlistItems().list(
             part="contentDetails",
             playlistId=playlist_id,
-            pageToken=next_page_token
+            pageToken=next_page_token,
+            maxResults=MAX_RESULTS
         ).execute()
 
         for item in results["items"]:
             video_id = item["contentDetails"]["videoId"]
-            print "VIDEO_ID: %s" % video_id
+            log ("VIDEO_ID: %s" % video_id)
             options = {'video_id': video_id}
 
             get_video_info_for_id(video_id)
             try:
                 get_commentators_channels_id(options)
+                sleep(1)
             except HttpError, e:
-                print "Video %s omitted due to an HTTP error" % (video_id)
+                error ("Video %s omitted due to an HTTP error" % (video_id))
 
         next_page_token = results.get('nextPageToken')
 
@@ -199,6 +199,7 @@ def get_commentators_channels_id(options):
             videoId=options['video_id'],
             textFormat="plainText",
             pageToken=next_page_token,
+            maxResults=MAX_RESULTS
         ).execute()
 
         for item in results["items"]:
@@ -219,29 +220,32 @@ def get_commentators_channels_id(options):
             like_count = comment['snippet']['likeCount']
             published_at = comment['snippet']['publishedAt']
 
-            # TODO: save this to db (comment table)
-            print "COMMENT INFO: commentId: %s; channelId: %s; " \
+            log ("COMMENT INFO: commentId: %s; channelId: %s; " \
                   "videoId: %s; authorChannelId: %s; totalReplyCount: %s; likeCount: %s; publishedAt: %s; \ntext: %s" \
                   % (
                       comment_id, channel_id, video_id, authorChannelIdValue, total_reply_count, like_count,
                       published_at,
-                      text)
+                      text))
 
-            # save to DB
-            # TODO: firstly fetch & save info about commentator's channel
-            # TODO: secondly fix issue with author_channel_id db constraint
-            if authorChannelIdValue is not None and not channel_already_in_db(authorChannelIdValue):
-                fetch_channel_info(authorChannelIdValue)
+            if authorChannelIdValue is not None:
+                if not channel_already_in_db(authorChannelIdValue):
+                    fetch_channel_info(authorChannelIdValue)
+                    sleep(0.005)
 
-            add_comment = ("INSERT INTO comment "
-                           "(comment_id, author_channel_id, channel_id, video_id, text, total_reply_count, like_count, published_at) "
-                           "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ")
-            data_comment = (
-            comment_id, authorChannelIdValue, channel_id, options['video_id'], text, total_reply_count, like_count, published_at)
-            cursor.execute(add_comment, data_comment)
-            cnx.commit()
+                add_comment = ("INSERT INTO comment "
+                               "(comment_id, author_channel_id, channel_id, video_id, text, total_reply_count, like_count, published_at) "
+                               "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ")
+                data_comment = (
+                comment_id, authorChannelIdValue, channel_id, options['video_id'], text, total_reply_count, like_count, published_at)
+                try:
+                    cursor.execute(add_comment, data_comment)
+                except mysql.connector.errors.IntegrityError, e:
+                    error ("An IntegrityError:\n%s\nchannel_id: %s, author_channel_id: %s" % (e, channel_id, authorChannelIdValue))
+                cnx.commit()
 
-            commentators_ids.append(authorChannelIdValue)
+                commentators_ids.append(authorChannelIdValue)
+
+                sleep(0.001)
 
         next_page_token = results.get('nextPageToken')
 
@@ -266,8 +270,8 @@ def fetch_channel_info(channel_id):
         stats = item["statistics"]
 
         # TODO: save this to db (channel table + channel_statistics)
-        print "CHANNEL INFO: title: %s; desc: %s; publAt: %s; country %s; \nstats: %s" % (
-            title, description, published_at, country, stats)
+        print ("CHANNEL INFO: title: %s; desc: %s; publAt: %s; country %s; \nstats: %s" % (
+            title, description, published_at, country, stats))
 
         # save to DB
         add_channel = ("INSERT INTO channel "
@@ -286,7 +290,6 @@ def fetch_channel_info(channel_id):
         cnx.commit()
 
         uploaded_videos = item["contentDetails"]["relatedPlaylists"]["uploads"]
-        print "Uploaded videos - id of the playlist: %s" % uploaded_videos
 
 def channel_already_in_db(channel_id):
     cursor = cnx.cursor()
@@ -308,12 +311,34 @@ def association_already_in_db(commented_id, commentator_id):
 
     return res != None
 
+def error(message):
+    print(format(strftime('%H:%M:%S')), ':', message, file=err_log)
+
+def log(message):
+    print(message, file=out_log)
+
 
 if __name__ == "__main__":
     argparser.add_argument("--max-results", help="Max results", default=25)
     argparser.add_argument("--for-username", help="For Username", default="phuckmediocrity")
     argparser.add_argument("--id", help="Id", default="UCXLesGEfmyhxqOjoAqhRwhA")
+    argparser.add_argument("--level", help="Max level of search", default=1)
     args = argparser.parse_args()
+
+    try:
+        cnx = mysql.connector.connect(**config)
+    except mysql.connector.Error as err:
+        if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
+            error ("Something is wrong with your user name or password")
+        elif err.errno == errorcode.ER_BAD_DB_ERROR:
+            error ("Database does not exist")
+        else:
+            error (err)
+
+    cursor = cnx.cursor()
+
+    err_log = codecs.open('err.log', 'w+', "utf-8")
+    out_log = codecs.open('out.log', 'w+', "utf-8")
 
     try:
         get_channel_info(args)
@@ -321,4 +346,4 @@ if __name__ == "__main__":
         cnx.close()
         # get_channel_id_for_name(args)
     except HttpError, e:
-        print "An HTTP error %d occurred:\n%s" % (e.resp.status, e.content)
+        print ("An HTTP error %d occurred:\n%s" % (e.resp.status, e.content))
