@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS `youtube`.`channel` (
   `description` TEXT NULL,
   `published_at` TIMESTAMP NULL,
   `country` VARCHAR(45) NULL,
+  `traversed` TINYINT NULL DEFAULT 0,
+  `parent_id` VARCHAR(100) NULL,
   PRIMARY KEY (`channel_id`))
 ENGINE = InnoDB;
 
@@ -31,6 +33,7 @@ CREATE TABLE IF NOT EXISTS `youtube`.`video` (
   `title` VARCHAR(160) NULL,
   `published_at` TIMESTAMP NULL,
   `description` TEXT NULL,
+  `category_id` VARCHAR(100) NULL,
   PRIMARY KEY (`video_id`),
   INDEX `fk_video_channel1_idx` (`channel_id` ASC),
   CONSTRAINT `fk_video_channel1`
